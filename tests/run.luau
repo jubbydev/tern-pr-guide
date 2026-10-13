@@ -30,6 +30,7 @@ local modules: { { name: string, run: () -> () } } = {
 	{ name = "agent_test", run = require("./agent_test") },
 	{ name = "passes_test", run = require("./passes_test") },
 	{ name = "model_menu_test", run = require("./model_menu_test") },
+	{ name = "hub_settings_test", run = require("./hub_settings_test") },
 }
 
 local failed = 0

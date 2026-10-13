@@ -1,6 +1,7 @@
 --!strict
 -- The keys that apply right now, pinned to the bottom: move, open, the selected card's action, and ? for the rest.
 local Model = require("../../hub/model")
+local ModelBox = require("../../model-box")
 local State = require("../../hub/state")
 local Ui = require("../ui")
 
@@ -19,7 +20,13 @@ local M = {}
 function M.view(s: State.State): Node
 	local fixed = FIXED[s.mode]
 	local title, keys = "Pick a pull request", { { "h j k l", "Move" }, { "⏎", "Open" } }
-	if fixed then
+	if s.mode == "menu" and s.menu == "settings" and s.models and s.agent then
+		-- The model menu's keys, as on the review page; letters type into its search.
+		title, keys = "Settings", { { "↑ ↓", "Model" }, { "← →", "Effort" } }
+		if ModelBox.showsLens(s.models, s.agent) then table.insert(keys, { "⇧← →", "Lens" }) end
+		table.insert(keys, { "⏎", "Use it" })
+		table.insert(keys, { "esc", "Close" })
+	elseif fixed then
 		title, keys = fixed.title, fixed.keys
 	else
 		local card = State.selectedCard(s)

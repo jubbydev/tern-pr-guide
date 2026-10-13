@@ -63,12 +63,12 @@ function M.saveChoice(agent: Agent.Agent)
  pcall(Host.kv.set, CHOICE_KEY, Agent.saved(agent))
 end
 
--- Remembers the review model and effort the hub's agent menu picked, keeping the rest of what was
--- saved: a review page may have changed it since the hub found its agent.
-function M.saveReviewModel(model: string, effort: string?)
- local saved = savedChoice()
- saved.model, saved.effort = model, effort
- pcall(Host.kv.set, CHOICE_KEY, saved)
+-- Takes up what the reader last saved, which the review page or the hub's Settings may have changed
+-- since `agent` was found, so a pick made in one doesn't save over the other's.
+function M.refreshChoice(agent: Agent.Agent)
+ local picks = Agent.picks(savedChoice(), nil)
+ if not picks then return end
+ agent.model, agent.effort, agent.explain, agent.review, agent.lens = picks.model, picks.effort, picks.explain, picks.review, picks.lens
 end
 
 -- The models `agent` can run with, from `omp models`. Calls `done` once; the list is empty when

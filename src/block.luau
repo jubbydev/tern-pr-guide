@@ -10,6 +10,7 @@ local Guide = require("./guide")
 local Host = require("./host")
 local Keys = require("./keys")
 local Links = require("./links")
+local ModelBox = require("./model-box")
 local Notice = require("./view/notice")
 local Page = require("./view/page")
 local Pr = require("./pr")
@@ -203,6 +204,14 @@ local function stepSuggestion(s: State, cx: BlockCx, delta: number)
  gotoSuggestion(s, cx, order[math.clamp(at + delta, 1, #order)])
 end
 
+-- Runs a model menu action on the page's agent, saving what it changed.
+local function modelAction(s: State, act: string, value: string)
+ local agent = (s.ai :: Agent.Run).agent
+ local outcome = ModelBox.act(s.models :: ModelBox.ModelBox, agent, act, value) :: ModelBox.Outcome
+ if outcome.save then AgentHost.saveChoice(agent) end
+ s.models = if outcome.close then nil else outcome.box
+end
+
 -- Takes you to a search result: a step, a comment, a file's first block, or one changed line,
 -- opening whatever hides it and marking the line.
 local function searchGo(s: State, cx: BlockCx, n: number)
@@ -383,54 +392,21 @@ local ACTIONS: { [string]: Handler } = {
    return
   end
   if not run or Agent.busy(run) then return end
+  AgentHost.refreshChoice(run.agent)
   Fetch.refreshLenses(run.agent)
-  State.openModels(s, run.agent, "explain")
+  s.models = ModelBox.open(run.agent, "explain")
   frameLater(cx, { { "focus", Page.modelFieldPath } })
  end,
- -- The Explanation | Review switch: the other slot's list, from its top, with the filter cleared.
- ["models-slot"] = function(s, _, slot)
-  local box = s.models :: State.ModelBox
-  if slot == box.slot or (slot ~= "explain" and slot ~= "review") then return end
-  State.openModels(s, (s.ai :: Agent.Run).agent, slot :: Agent.Pass)
- end,
- ["models-filter"] = function(s)
-  local box = s.models :: State.ModelBox
-  if box.field.text == box.query then return end
-  box.query, box.selected, box.top = box.field.text, 1, 1
- end,
- ["models-move"] = function(s, _, delta) State.moveModel(s.models :: State.ModelBox, (s.ai :: Agent.Run).agent, tonumber(delta) :: number) end,
- ["models-top"] = function(s) (s.models :: State.ModelBox).top = 1 end,
- ["models-effort"] = function(s, _, delta) State.stepEffort(s.models :: State.ModelBox, (s.ai :: Agent.Run).agent, tonumber(delta) :: number) end,
- ["models-pick"] = function(s)
-  local agent = (s.ai :: Agent.Run).agent
-  if State.chooseModel(s.models :: State.ModelBox, agent) then
-   AgentHost.saveChoice(agent)
-   s.models = nil
-  end
- end,
- -- A click on a model or an effort applies it and leaves the dropdown open for the other.
- ["model-row"] = function(s, _, n)
-  local box, agent = s.models :: State.ModelBox, (s.ai :: Agent.Run).agent
-  box.selected = tonumber(n) :: number
-  if State.chooseModel(box, agent) then AgentHost.saveChoice(agent) end
- end,
- ["model-effort"] = function(s, _, effort)
-  local box, agent = s.models :: State.ModelBox, (s.ai :: Agent.Run).agent
-  box.effort = effort
-  if State.chooseModel(box, agent) then AgentHost.saveChoice(agent) end
- end,
- -- A lens applies at once and leaves the dropdown open, like an effort click.
- -- The lens shows only on the Review slot with the review on, and acts only there.
- ["models-lens"] = function(s, _, delta)
-  local agent = (s.ai :: Agent.Run).agent
-  if not State.showsLens(s.models :: State.ModelBox, agent) then return end
-  State.stepLens(agent, tonumber(delta) :: number)
-  AgentHost.saveChoice(agent)
- end,
- ["model-lens"] = function(s, _, n)
-  local agent = (s.ai :: Agent.Run).agent
-  if State.showsLens(s.models :: State.ModelBox, agent) and State.chooseLens(agent, tonumber(n) :: number) then AgentHost.saveChoice(agent) end
- end,
+ ["models-slot"] = function(s, _, slot) modelAction(s, "models-slot", slot) end,
+ ["models-filter"] = function(s) modelAction(s, "models-filter", "") end,
+ ["models-move"] = function(s, _, delta) modelAction(s, "models-move", delta) end,
+ ["models-top"] = function(s) modelAction(s, "models-top", "") end,
+ ["models-effort"] = function(s, _, delta) modelAction(s, "models-effort", delta) end,
+ ["models-pick"] = function(s) modelAction(s, "models-pick", "") end,
+ ["model-row"] = function(s, _, n) modelAction(s, "model-row", n) end,
+ ["model-effort"] = function(s, _, effort) modelAction(s, "model-effort", effort) end,
+ ["models-lens"] = function(s, _, delta) modelAction(s, "models-lens", delta) end,
+ ["model-lens"] = function(s, _, n) modelAction(s, "model-lens", n) end,
  ["edit-lenses"] = function(s, cx)
   local folder, err = Fetch.prepareLensFolder()
   s.models = nil

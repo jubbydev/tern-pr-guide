@@ -1,9 +1,11 @@
 --!strict
--- The review page's model menu: its Explanation and Review slots, the Off row, and Tab between them.
+-- The model and lens menu: its Explanation and Review slots, the Off row, and Tab between them, on the
+-- review page and in the PR hub's Settings.
 local Agent = require("../src/agent")
 local Fields = require("../src/text-field")
 local Guide = require("../src/guide")
 local Keys = require("../src/keys")
+local ModelBox = require("../src/model-box")
 local Pr = require("../src/pr")
 local State = require("../src/state")
 
@@ -23,9 +25,9 @@ local function agent(): Agent.Agent
 	return a
 end
 
-local function names(box: State.ModelBox, a: Agent.Agent): string
+local function names(box: ModelBox.ModelBox, a: Agent.Agent): string
 	local out = {}
-	for _, model in State.modelChoices(box, a) do table.insert(out, model.name) end
+	for _, model in ModelBox.choices(box, a) do table.insert(out, model.name) end
 	return table.concat(out, ",")
 end
 
@@ -52,12 +54,12 @@ local function drawn()
 	local ok, err = pcall(function()
 		local s, a = page(), agent()
 		a.lenses = { { name = "Balanced", description = "The comments worth making.", instructions = "" } }
-		State.openModels(s, a, "explain")
-		local explain = texts(ModelPanel.view(s.models :: State.ModelBox, a, "anchor", false))
+		s.models = ModelBox.open(a, "explain")
+		local explain = texts(ModelPanel.view(s.models :: ModelBox.ModelBox, a, "anchor", false))
 		assert(string.find(explain, "Explains what the PR changes, step by step.", 1, true) and string.find(explain, "[tab]", 1, true), explain)
 		assert(not string.find(explain, "Lens", 1, true) and not string.find(explain, "Off", 1, true), "Explanation has no lens and no Off")
-		State.openModels(s, a, "review")
-		local review = texts(ModelPanel.view(s.models :: State.ModelBox, a, "anchor", false))
+		s.models = ModelBox.open(a, "review")
+		local review = texts(ModelPanel.view(s.models :: ModelBox.ModelBox, a, "anchor", false))
 		assert(string.find(review, "Off||Explanation only; no drafted comments.", 1, true) and string.find(review, "Lens", 1, true), review)
 
 		local motion = { born = {}, next = {}, booted = true, animate = false }
@@ -79,8 +81,8 @@ local function drawn()
 		assert(not string.find(guided, "Generate AI Guided Review", 1, true), "and no AI row takes a line of its own")
 		s.review.guide.guided = false
 
-		State.openModels(s, a, "review")
-		local box = s.models :: State.ModelBox
+		s.models = ModelBox.open(a, "review")
+		local box = s.models :: ModelBox.ModelBox
 		box.top = 3
 		local scrolled = texts(ModelPanel.view(box, a, "anchor", false))
 		assert(string.find(scrolled, "Off||Explanation only; no drafted comments.", 1, true) and string.find(scrolled, "↑  1 more", 1, true), "Off stays pinned above a scrolled list: " .. scrolled)
@@ -94,33 +96,33 @@ return function()
 	drawn()
 	local s, a = page(), agent()
 
-	State.openModels(s, a, "explain")
-	local box = s.models :: State.ModelBox
+	s.models = ModelBox.open(a, "explain")
+	local box = s.models :: ModelBox.ModelBox
 	assert(names(box, a) == "Haiku 4,Opus 5", "the Explanation slot has no Off row: " .. names(box, a))
 	assert(box.selected == 2 and box.effort == "high", "the explanation starts on the review model it defaults to")
-	assert(not State.showsLens(box, a), "no lens on the Explanation slot")
+	assert(not ModelBox.showsLens(box, a), "no lens on the Explanation slot")
 	box.selected, box.effort = 1, "low"
-	assert(State.chooseModel(box, a))
+	assert(ModelBox.choose(box, a))
 	assert(a.explain.model == "anthropic/haiku-4" and a.explain.effort == "low", "picking on Explanation sets the explanation")
 	assert(a.model == "anthropic/opus-5" and a.effort == "high", "and leaves the review model")
 
 	assert(Keys.action(s, key("tab")).act == "models-slot" and Keys.action(s, key("tab")).value == "review", "Tab goes to Review")
-	State.openModels(s, a, "review")
-	box = s.models :: State.ModelBox
+	s.models = ModelBox.open(a, "review")
+	box = s.models :: ModelBox.ModelBox
 	assert(Keys.action(s, key("tab")).value == "explain", "Tab comes back to Explanation")
 	assert(names(box, a) == "Off,Haiku 4,Opus 5", "Off comes first on Review: " .. names(box, a))
-	assert(box.selected == 3 and State.showsLens(box, a), "Review highlights its model and shows the lens")
+	assert(box.selected == 3 and ModelBox.showsLens(box, a), "Review highlights its model and shows the lens")
 	box.selected = 1
-	assert(State.chooseModel(box, a))
+	assert(ModelBox.choose(box, a))
 	assert(a.review == false and a.model == "anthropic/opus-5", "Off turns the review off and keeps its model")
-	assert(not State.showsLens(box, a), "no lens with the review off")
+	assert(not ModelBox.showsLens(box, a), "no lens with the review off")
 
-	State.openModels(s, a, "review")
-	box = s.models :: State.ModelBox
-	assert(box.selected == 1 and State.inUse(a, "review", State.OFF), "reopened, Off is the one in use")
+	s.models = ModelBox.open(a, "review")
+	box = s.models :: ModelBox.ModelBox
+	assert(box.selected == 1 and ModelBox.inUse(a, "review", ModelBox.OFF), "reopened, Off is the one in use")
 	box.field = Fields.create("opus")
 	assert(names(box, a) == "Opus 5", "a filter that doesn't match Off hides it")
 	box.selected = 1
-	assert(State.chooseModel(box, a))
+	assert(ModelBox.choose(box, a))
 	assert(a.review == true and a.model == "anthropic/opus-5", "picking a review model turns the review back on")
 end

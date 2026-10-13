@@ -2,10 +2,12 @@
 -- The hub's interaction state (tab, selection, filter, sort, search, open menus) and the board
 -- built from it. Views read `State.board` and never filter, sort or classify: every rule is `model`'s.
 -- Pure: no clock, no network, no Tern. `now` is passed in.
+local Agent = require("../agent")
 local Fields = require("../text-field")
 local AgentFix = require("./agent-fix")
 local Fixes = require("./fixes")
 local Links = require("../links")
+local ModelBox = require("../model-box")
 local Model = require("./model")
 local ReviewFix = require("./review-fix")
 local Summary = require("./summary")
@@ -83,10 +85,6 @@ export type BoardData = {
 	empty: boolean,
 }
 
--- The agent's model and effort for fixes, summaries and guides; the models it can pick from.
-export type AgentModel = { selector: string, name: string, efforts: { string } }
-export type AgentChoice = { models: { AgentModel }, model: string, effort: string? }
-
 -- The fixes page, open on the Needs fixes card `key`. Its steps come from `s.details[key]` and the card's PR.
 export type Route = {
 	kind: "fixes" | "review-fix",
@@ -137,7 +135,8 @@ export type State = {
 	refreshedAt: string?,
 	loading: boolean,
 	error: Model.Error?,
-	agent: AgentChoice?, -- nil until the block has found the agent
+	agent: Agent.Agent?, -- what Settings picks for: the reader's agent once the block finds it, or a sample's
+	models: ModelBox.ModelBox?, -- Settings' model and lens menu, read only while `menu` is "settings"
 	links: "tern" | "browser", -- where GitHub links open; the block loads and saves it
 	keyed: boolean, -- the change being drawn came from a key: it never animates
 	born: { [string]: string },
@@ -322,7 +321,7 @@ function M.new(prs: { HubPR }, now: number, saved: any): State
 		repositories = repositories, sort = sort, search = Fields.create(""), link = Fields.create(""),
 		mode = "board", route = nil, menu = nil, menuCursor = 1, confirm = nil, methodEdit = nil, folded = folded, recent = {}, merged = {}, walking = false,
 		ringed = {}, agents = {}, details = {}, flakes = {}, summaries = {}, merges = {}, autoMerge = {}, acted = {}, busy = {},
-		refreshedAt = nil, loading = false, error = nil, agent = nil, links = "tern",
+		refreshedAt = nil, loading = false, error = nil, agent = nil, models = nil, links = "tern",
 		keyed = false, born = {}, booted = false,
 	}
 	M.project(s)
@@ -1153,10 +1152,6 @@ function M.menuRows(s: State): { MenuRow }
 		if card then
 			for _, more in card.more do table.insert(rows, row(more.label, more.key, nil, false, "choice")) end
 		end
-	elseif s.menu == "settings" and s.agent then
-		for _, model in s.agent.models do
-			table.insert(rows, row(model.name, string.match(model.selector, "^([^/]+)/"), nil, model.selector == (s.agent :: AgentChoice).model, "choice"))
-		end
 	end
 	return rows
 end
@@ -1169,10 +1164,8 @@ function M.openMenu(s: State, menu: MenuId)
 		for index, sort in M.SORTS do
 			if sort.id == s.sort then s.menuCursor = index end
 		end
-	elseif menu == "settings" and s.agent then
-		for index, model in s.agent.models do
-			if model.selector == s.agent.model then s.menuCursor = index end
-		end
+	elseif menu == "settings" then
+		s.models = if s.agent then ModelBox.open(s.agent, "explain") else nil
 	elseif menu == "merge" then
 		local repo = M.mergeRepo(s)
 		local current = if repo and s.merges[repo] then s.merges[repo].method.kind else "squash"
@@ -1185,6 +1178,7 @@ end
 
 function M.closeMenu(s: State)
 	s.menu = nil
+	s.models = nil
 	s.methodEdit = nil
 	if s.mode == "menu" then s.mode = "board" end
 end
@@ -1193,36 +1187,12 @@ function M.menuMove(s: State, delta: number)
 	s.menuCursor = math.clamp(s.menuCursor + delta, 1, math.max(1, #M.menuRows(s)))
 end
 
--- The efforts the highlighted model takes in Settings, and the one now chosen.
-function M.agentEfforts(s: State): ({ string }, string?)
-	local agent = s.agent
-	if s.menu ~= "settings" or not agent then return {}, nil end
-	local model = agent.models[s.menuCursor]
-	if not model then return {}, nil end
-	return model.efforts, agent.effort
-end
-
--- Steps the effort of the highlighted model along its levels.
-function M.stepEffort(s: State, delta: number)
-	local agent = s.agent
-	if not agent then return end
-	local efforts, current = M.agentEfforts(s)
-	if #efforts == 0 then return end
-	local at = (current and table.find(efforts, current)) or table.find(efforts, "high") or 1
-	agent.effort = efforts[math.clamp(at + delta, 1, #efforts)]
-end
-
-function M.setEffort(s: State, level: string)
-	local efforts = M.agentEfforts(s)
-	if s.agent and table.find(efforts, level) then s.agent.effort = level end
-end
-
 -- Where GitHub links open: `to`, else the other one.
 function M.setLinks(s: State, to: string?)
 	s.links = if to == "tern" or to == "browser" then to elseif s.links == "tern" then "browser" else "tern"
 end
 
--- Applies row `index` of the open menu: a sort or model is chosen and the menu closes; a repository is
+-- Applies row `index` of the open menu: a sort is chosen and the menu closes; a repository is
 -- toggled and the menu stays; Clear filter clears and closes. Returns whether the menu closed.
 function M.menuPick(s: State, index: number): boolean
 	local rows = M.menuRows(s)
@@ -1241,16 +1211,6 @@ function M.menuPick(s: State, index: number): boolean
 		end
 		M.toggleRepository(s, s.board.repositories[index].repo)
 		return false
-	elseif s.menu == "settings" and s.agent then
-		local model = s.agent.models[index]
-		s.agent.model = model.selector
-		if #model.efforts == 0 then
-			s.agent.effort = nil
-		elseif not s.agent.effort or not table.find(model.efforts, s.agent.effort) then
-			s.agent.effort = if table.find(model.efforts, "high") then "high" else model.efforts[1]
-		end
-		M.closeMenu(s)
-		return true
 	end
 	return false
 end
@@ -1260,14 +1220,6 @@ function M.actionAt(s: State, index: number): CardAction?
 	local card = M.selectedCard(s)
 	if s.menu == "actions" and card then return card.more[index] end
 	return nil
-end
-
--- The model button's text: the model and effort, or what the button is for before the agent is found.
-function M.agentLabel(s: State): string
-	local agent = s.agent
-	if not agent then return "Agent model" end
-	local name = string.match(agent.model, "[^/]+$") or agent.model
-	return if agent.effort then name .. " · " .. agent.effort else name
 end
 
 -- The merge chooser ----------------------------------------------------------------------------------------

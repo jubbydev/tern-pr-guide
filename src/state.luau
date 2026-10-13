@@ -6,7 +6,7 @@ local FileGroup = require("./file-group")
 local FileTree = require("./file-tree")
 local Fields = require("./text-field")
 local Guide = require("./guide")
-local Lens = require("./lens")
+local ModelBox = require("./model-box")
 local Moves = require("./moves")
 local Pr = require("./pr")
 local Review = require("./review")
@@ -20,11 +20,6 @@ export type Mode = "search" | "models" | "composer" | "summary" | "review" | "re
 export type Composer = { file: string, from: number, to: number, block: string?, field: Fields.Field }
 
 export type SearchBox = { field: Fields.Field, results: { Search.Result }, selected: number }
-
--- The model dropdown: the pass it picks for, its filter and the text the list was last filtered
--- by, the highlighted row (an index into `modelChoices`), the effort the next pick gets, and the
--- first row its list shows.
-export type ModelBox = { slot: Agent.Pass, field: Fields.Field, query: string, selected: number, effort: string?, top: number }
 
 -- The changed line a search jumped to, marked until the next jump.
 export type Hit = { file: string, entry: number }
@@ -104,7 +99,7 @@ export type State = {
  helpOpen: boolean,
  -- The file view's tree is hidden, giving the code the whole width.
  treeHidden: boolean,
- models: ModelBox?,
+ models: ModelBox.ModelBox?,
  reviewOpen: boolean,
  -- The review panel's selected comment, an index into Review.items.
  reviewCursor: number,
@@ -204,7 +199,7 @@ end
 function M.field(s: State): Fields.Field?
  local mode = M.mode(s)
  if mode == "search" then return (s.search :: SearchBox).field end
- if mode == "models" then return (s.models :: ModelBox).field end
+ if mode == "models" then return (s.models :: ModelBox.ModelBox).field end
  if mode == "composer" then return (s.composer :: Composer).field end
  if mode == "summary" then return s.review.summary end
  return nil
@@ -597,97 +592,6 @@ function M.toggleItem(s: State, n: number)
   s.reviewCursor = n
   Review.include(s.review, item, not Review.isIncluded(s.review, item))
  end
-end
-
--- The Review slot's first row, which turns the review off.
-M.OFF = { selector = "", name = "Off", efforts = {} } :: Agent.Model
-
--- Whether `model` is the one `slot` uses; Off is when the review is off.
-function M.inUse(agent: Agent.Agent, slot: Agent.Pass, model: Agent.Model): boolean
- if slot == "review" and not agent.review then return model == M.OFF end
- return model ~= M.OFF and model.selector == Agent.choiceFor(agent, slot).model
-end
-
--- The model dropdown on `slot`, highlighting what that pass uses.
-function M.openModels(s: State, agent: Agent.Agent, slot: Agent.Pass)
- s.models = { slot = slot, field = Fields.create(), query = "", selected = 1, effort = Agent.choiceFor(agent, slot).effort, top = 1 }
- local box = s.models :: ModelBox
- for i, model in M.modelChoices(box, agent) do
-  if M.inUse(agent, slot, model) then box.selected = i end
- end
- box.top = math.max(1, box.selected - 3)
-end
-
--- The rows matching the dropdown's filter: the models, under Off on the Review slot.
-function M.modelChoices(box: ModelBox, agent: Agent.Agent): { Agent.Model }
- local models = Agent.matching(agent.models, box.field.text)
- if box.slot ~= "review" or #Agent.matching({ M.OFF }, box.field.text) == 0 then return models end
- local rows = { M.OFF }
- table.move(models, 1, #models, 2, rows)
- return rows
-end
-
--- Rows the model list fits before it scrolls.
-local MODEL_ROWS = 8
-
--- Starts the list far enough down that the highlighted model is among the rows it fits. The list
--- is never scrolled to it: Tern's reveal into a scroller pins it, so the wheel stops working.
-function M.keepModelShown(box: ModelBox)
- if box.selected < box.top then
-  box.top = box.selected
- elseif box.selected >= box.top + MODEL_ROWS then
-  box.top = box.selected - MODEL_ROWS + 1
- end
-end
-
-function M.moveModel(box: ModelBox, agent: Agent.Agent, delta: number)
- box.selected = math.clamp(box.selected + delta, 1, math.max(1, #M.modelChoices(box, agent)))
- M.keepModelShown(box)
-end
-
--- Steps the effort the highlighted model will get through the levels it takes.
-function M.stepEffort(box: ModelBox, agent: Agent.Agent, delta: number)
- local model = M.modelChoices(box, agent)[box.selected]
- if not model or #model.efforts == 0 then return end
- local at = table.find(model.efforts, Agent.effortFor(model, box.effort) :: string) :: number
- box.effort = model.efforts[(at - 1 + delta) % #model.efforts + 1]
-end
-
--- Makes the highlighted model, with the effort it can take, the one the slot's pass runs with, or
--- turns the review off; false when the filter matches nothing.
-function M.chooseModel(box: ModelBox, agent: Agent.Agent): boolean
- local model = M.modelChoices(box, agent)[box.selected]
- if not model then return false end
- if model == M.OFF then
-  agent.review = false
-  return true
- end
- local effort = Agent.effortFor(model, box.effort)
- if box.slot == "review" then
-  agent.model, agent.effort, agent.review = model.selector, effort, true
- else
-  agent.explain = { model = model.selector, effort = effort }
- end
- box.effort = effort
- return true
-end
-
--- Whether the dropdown offers the lens: on the Review slot, while the review is on.
-function M.showsLens(box: ModelBox, agent: Agent.Agent): boolean
- return box.slot == "review" and agent.review
-end
-
--- Has runs use the lens after (`delta` 1) or before (-1) the current one, wrapping round.
-function M.stepLens(agent: Agent.Agent, delta: number)
- agent.lens = Lens.step(agent.lenses, agent.lens, delta).name
-end
-
--- Has runs use lens number `n` of the list; false when there is none.
-function M.chooseLens(agent: Agent.Agent, n: number): boolean
- local lens = agent.lenses[n]
- if not lens then return false end
- agent.lens = lens.name
- return true
 end
 
 return M

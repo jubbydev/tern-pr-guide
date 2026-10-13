@@ -182,7 +182,8 @@ has two slots, **Explanation** and **Review**, and `Tab` switches between them:
 
 Until you choose an explanation model it uses the review model. The model button shows the
 explanation model, then the review model, each with its effort, then the lens. The PR hub's Settings
-choose the review model, which agent fixes and feedback summaries also use.
+(`⇧S`) show the same menu and save the same choice. Agent fixes and feedback summaries use the review
+model.
 
 The lens control is on the Review slot, because a lens steers only the review comments. PR Guide
 ships four lenses:
@@ -246,7 +247,7 @@ Press `?` on any PR Guide page for the keys that apply there.
 | `A` | Show or hide approved PRs, on Review requests |
 | `R` | Show or hide recently merged PRs, or recently opened PRs on Review requests |
 | `N` | Add a PR by link |
-| `⇧S` | Settings: the review model and effort (agent fixes use it too), and whether GitHub links open in Tern or the default browser (`L` switches). `⇧M` opens it too |
+| `⇧S` | Settings: the explanation and review models, their effort and the lens, in the same menu as the review page, and whether GitHub links open in Tern or the default browser (`L` switches while the search field is empty). `⇧M` opens it too |
 | `A` | Run the selected card's main action, on your PRs |
 | `⇧A` | Summarize feedback or return a retained worktree |
 | `C` | Copy the PR title and link |

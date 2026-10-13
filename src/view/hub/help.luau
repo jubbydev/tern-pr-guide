@@ -48,7 +48,7 @@ local GROUPS: { Group } = {
 		{ "N", "Add a pull request by link" },
 		{ "F", "Filter by repository" },
 		{ "S", "Sort" },
-		{ "⇧S", "Settings: agent model, effort and where links open (also ⇧M)" },
+		{ "⇧S", "Settings: models, effort, lens and where links open (also ⇧M)" },
 		{ "⌘R", "Refresh" },
 		{ "j k", "Move in a menu" },
 		{ "Space", "Select a card to merge or close, or choose in a menu" },

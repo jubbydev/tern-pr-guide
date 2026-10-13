@@ -1354,7 +1354,6 @@
 .sf-overlay[data-role='gp.hubmenu'] .sf-ov-body, .sf-overlay[data-role='gp.hubsettings'] .sf-ov-body { width: 100%; max-width: none; padding: 0; }
 /* Tern's gradient edge draws at the card's default width, a stray line inside a resized card; its 1px ring stays */
 .sf-overlay[data-role='gp.hubmenu'] .sf-ov-card::after, .sf-overlay[data-role='gp.hubsettings'] .sf-ov-card::after { display: none; }
-.gp-hs-models { padding-top: 4px; }
 .gp-hs-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px 12px; border-top: 1px solid var(--l2); }
 .gp-hs-row > * { flex-shrink: 0; }
 .gp-hs-top { display: flex; align-items: center; min-height: 20px; }

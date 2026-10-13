@@ -144,6 +144,7 @@ Each module's one job comes from its header comment. A verdict says what the por
 |---|---|---|---|
 | `src/block.luau` | The review page block: opens the PR its arguments name (or the bundled sample), draws the page, and turns clicks and keys into state changes plus the scrolling, focusing and animation timing only a live window can do. | Rewrite for the web host. Keep its `ACTIONS` table as the page's action vocabulary. | none |
 | `src/state.luau` | What the page shows on top of the review itself, and the changes to it that need no window. | Port 1:1. | none |
+| `src/model-box.luau` | The model and lens menu's state and what its actions do to the agent's picks, shared by the review page's model menu and the hub's Settings. | Port 1:1. | `model_menu_test`, `hub_settings_test` |
 | `src/review.luau` | The review: steps in reading order, decisions on suggestions, own comments, the verdict and the `Payload` for GitHub's create-review call. No header comment. | Port 1:1. | none |
 | `src/guide.luau` | Parses and validates a guide file against a PR (`parse`, `read`, `defaultGuide`, `isStale`), and the review pass's file (`parseDraft`, `readDraft`, `withDraft`). No header comment. `read` uses `Host.fs`. | Port 1:1. Change with `GUIDE.md`, `prompts/explain.md` and `prompts/review.md`. | none |
 | `src/diff.luau` | Diff analysis for one file: spans, commentable ranges, the layout with hidden runs, tokens. No header comment. | Port 1:1. | `diff_test`, `moves_test` |
@@ -220,7 +221,7 @@ A failing check with no usable annotation shows its log on the fixes page. Each 
 | `src/view/supporting.luau` | Changed files no step visits, as a folder tree. | Rewrite as React views. |
 | `src/view/review-panel.luau` | The review as GitHub will receive it. | Rewrite as React views. |
 | `src/view/search-panel.luau` | The `/` search box and its results. | Rewrite as React views. |
-| `src/view/model-panel.luau` | The model dropdown with efforts and the review lens. | Rewrite as React views. |
+| `src/view/model-panel.luau` | The model and lens menu: its parts (`parts`), shown by the review page as its own overlay (`view`) and by the hub's Settings above the links toggle. | Rewrite as one React component used in both places. |
 | `src/view/notice.luau` | The page while there is no review: loading stages or why it stopped. | Rewrite as React views. |
 | `src/view/hints.luau`, `src/view/help.luau` | The hint bar and the `?` panel. | Rewrite as React views. |
 | `src/view/hub/board.luau` | The hub page: header, tabs, columns, the Inactive fold, the hint bar. | Rewrite as React views. |
@@ -522,7 +523,7 @@ type AgentFixRead = { files: Record<string, string>; diff: string; originals?: R
 interface AgentHost {
 	findAgent(): Promise<Result<Agent>> // `omp` on PATH and the model from kv "model" or ~/.omp/agent/config.yml
 	saveChoice(agent: Agent): void // kv "model": { model, effort, lens, explainModel, explainEffort, review }
-	saveReviewModel(model: string, effort?: string): void // kv "model": only model and effort, the rest kept
+	refreshChoice(agent: Agent): void // takes up kv "model" again: the review page or the hub's Settings may have saved since
 	listModels(agent: Agent): Promise<AgentModel[]> // `omp models --json`; [] on failure
 	explain(agent: Agent, repo: Repo, pr: PR): Promise<Result<Guide>> // prompts/explain.md, `omp -p --model M [--thinking E] <request>` with the explanation model, writes <n>.json
 	draftReview(agent: Agent, repo: Repo, pr: PR): Promise<Result<GuideDraft>> // prompts/review.md with the review model and lens, writes <n>.review.json; runs alongside explain
@@ -553,7 +554,7 @@ The store is the `Host.kv` keys the plugin writes. Every window of a Tern sessio
 | `hub.merge.<owner>/<repo>` | `MergeRecord` | `Lookups.saveRecord` | one per repo |
 | `hub.recent` | `Opened[]` | `Fetch.rememberPr`, `Fetch.migrateRecent` | 8 (`Sync.RECENT_CAP`) |
 | `hub.clones` | `Record<slug, path>` | `AgentHost.rememberAgentClone` | Plugin only. Drop. |
-| `model` | `{ model, effort?, lens, explainModel?, explainEffort?, review? }`: `model` and `effort` are the review model, which agent fixes also use | `AgentHost.saveChoice`, `AgentHost.saveReviewModel` | one |
+| `model` | `{ model, effort?, lens, explainModel?, explainEffort?, review? }`: `model` and `effort` are the review model, which agent fixes also use | `AgentHost.saveChoice` (the review page's model menu and the hub's Settings), read again by `AgentHost.refreshChoice` when either opens | one |
 | `runSeconds` | number: the last explanation's seconds | `Fetch.saveSeconds("explain")` | one |
 | `reviewSeconds` | number: the last review's seconds | `Fetch.saveSeconds("review")` | one |
 | `links` | `"tern" \| "browser"`: where GitHub links open | `Fetch.saveLinkTarget` (Settings, `hub-links`) | one. Drop: a web app opens links in a new tab. |
@@ -665,14 +666,14 @@ Port the table as is, as a `Record<string, (b, cx, value) => void>` and one `dis
 | `hub-searched` | `State.searched` |
 | `hub-search-done` | `State.closeSearch(s, false)` |
 | `hub-search-clear` | `State.closeSearch(s, true)` |
-| `hub-menu` | `State.openMenu`, or `closeMenu` when it is open |
+| `hub-menu` | `State.openMenu`, or `closeMenu` when it is open. Settings first takes up the saved choice (`AgentHost.refreshChoice`, live boards) and the lenses (`Fetch.refreshLenses`), then focuses `Paths.settingsField` |
 | `hub-actions` | `State.select`, then `State.openMenu(s, "actions")` or `"merge"` |
 | `hub-menu-move` | `State.menuMove` |
 | `hub-menu-close` | `closeMenu` |
-| `hub-menu-pick`, `hub-menu-select` | `pickRow`, which runs the row's own action, or `chooseMergeRow` (`Lookups.setUserMethod`, `State.beginMethodEdit`), or in Settings remembers the review model (`AgentHost.saveReviewModel`) |
+| `hub-menu-pick`, `hub-menu-select` | `pickRow`, which runs the row's own action, or `chooseMergeRow` (`Lookups.setUserMethod`, `State.beginMethodEdit`) |
 | `hub-menu-enter` | `pickRow`, except in the repository list, where it closes |
-| `hub-menu-effort` | `State.stepEffort`, `AgentHost.saveReviewModel` |
-| `hub-menu-effort-set` | `State.setEffort`, `AgentHost.saveReviewModel` |
+| `models-slot`, `models-filter`, `models-move`, `models-top`, `models-effort`, `models-pick`, `model-row`, `model-effort`, `models-lens`, `model-lens` | Settings' model and lens menu: `ModelBox.act` on `s.agent`, the same as the review page's entries; `AgentHost.saveChoice` when it says to save (never on a sample board), `State.closeMenu` when it says to close |
+| `edit-lenses` | `Fetch.prepareLensFolder`, closes Settings and opens the folder |
 | `hub-links` | `State.setLinks`, `Fetch.saveLinkTarget`: where GitHub links open (Settings) |
 | `hub-help`, `hub-help-close` | `State.openHelp`, `State.closeHelp` |
 | `card-agent` | `AgentRun.beginAgent(b, cx, key, "fix")` |
@@ -738,7 +739,7 @@ The guide page has its own `ACTIONS` table in `src/block.luau`, with the same `d
 | Mode | Keys |
 |---|---|
 | `board` | `?` help. `/` search. ⌘R or Ctrl+R refresh. Esc `hub-escape`. ⏎ `hub-open`, ⇧⏎ `hub-open-generate`. Space `hub-mark`. ⇧X `hub-mark-stale` on the mine tab. With marks, M `hub-batch-merge` and X `hub-batch-close`. h j k l and the arrows `hub-move`. `.` `hub-next`. T `hub-tab`. I `hub-fold inactive`. R `hub-fold merged` on the mine tab and `hub-fold recent` on the review tab (`State.ROW_FOLD`). ⇧T `hub-fold team` and A `hub-fold approved` on the review tab. F `hub-menu repositories`. S `hub-menu sort`. ⇧S or ⇧M `hub-menu settings`. N `hub-link`. Any other letter runs the selected card's main or alternative action whose `key` matches (⇧A also runs a main `card-summarize`). |
-| `menu` | j k and the arrows `hub-menu-move`. ⏎ `hub-menu-enter`. Space `hub-menu-select`. Esc `hub-menu-close`. In Settings, left and right step the effort and L sends `hub-links`. While a merge method is typed, ⏎ `hub-method-save` and Esc `hub-method-cancel`. |
+| `menu` | j k and the arrows `hub-menu-move`. ⏎ `hub-menu-enter`. Space `hub-menu-select`. Esc `hub-menu-close`. In Settings, the review page's model menu keys (`Keys` `modelsKey`: ↑↓ `models-move`, ←→ `models-effort`, ⇧←→ `models-lens`, Tab `models-slot`, ⏎ `models-pick`, ⌃E `edit-lenses`), other keys type into its search field (`models-filter`), and L sends `hub-links` while that field is empty. While a merge method is typed, ⏎ `hub-method-save` and Esc `hub-method-cancel`. |
 | `search` | ⏎ `hub-search-done`. Esc `hub-search-clear`. Up and down `hub-move`. Other keys type, and a change sends `hub-searched` (`Keys.hubAfterTyping`). |
 | `link` | ⏎ `hub-link-add`. ⇧⏎ `hub-link-open`. Esc `hub-link-clear`. Other keys type. |
 | `confirm` | ⌘⏎ `hub-confirm`. Esc `hub-confirm-cancel`. |
@@ -773,6 +774,8 @@ Run all of them with `/opt/homebrew/bin/luau tests/run.luau`. `tests/run.luau` l
 | `tests/moves_test.luau` | `diff`, `moves`, `pr` | Moved blocks across files and within one, the near misses that stay plain changes (short or brace-only blocks, an edited line, a remove-then-add group), `Diff.analyze` carrying moves, and that 3,000 moved lines match in under two seconds. |
 | `tests/diff_test.luau` | `diff`, `pr` | A step's block starting at its enclosing function (within `SCOPE_REACH`), the hidden runs and gap labels around it. |
 | `tests/groups_test.luau` | `agent`, `file-group`, `file-tree`, `git-output`, `guide`, `pr`, `review`, `state` | Tests and generated files: the path classifier, git's output marking them, the order and sections the page lists files in, what a guide and the agent's diff leave out, and how the supporting area folds and opens them. |
+| `tests/model_menu_test.luau` | `model-box`, `keys`, `state`, `view/model-panel`, `view/header`, `view/ui`'s `tern.ui` stubbed | The model menu's Explanation and Review slots, Off pinned first on Review, Tab, choosing, and the model button's text. |
+| `tests/hub_settings_test.luau` | the real `hub/block`, `Host` stubbed, `view/ui`'s `tern.ui` stubbed | Settings: opening focuses the search, typing filters, Tab to Review, Off, a click, the lens, the saved choice, and L only with an empty search. |
 | `tests/fold_test.luau` | the real `hub/block`, `Host` stubbed, `view/ui`'s `tern.ui` stubbed | Opening a fold scrolls its header to the top of the board; closing one doesn't scroll. |
 | `tests/ci_log_test.luau` | `ci/actions`, `ci/buildkite`, `ci/log` | The log contract and both CI modules on recorded output (`fixtures/hub/ci-logs.luau`): which checks each owns, the exact commands and env, the cut, failures, and `Log.refs`. |
 | `tests/summary_test.luau` | the real `hub/block` and `agent-host`, `Host` stubbed | Summarize and bot fixes end to end through `ACTIONS`: stale refs, edited comments, timeouts, a closed block, duplicate callbacks. |

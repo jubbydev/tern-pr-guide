@@ -21,6 +21,7 @@ A Tern plugin (Luau and one stylesheet) with two surfaces: the PR hub organizes 
 | Saved guide model and parsing | `src/guide.luau` |
 | Guided review interaction state and effects | `src/state.luau`, `src/block.luau` |
 | Guided review rendering | `src/view/*.luau` outside `src/view/hub/` |
+| Model and lens menu (review page and hub Settings) | `src/model-box.luau`, `src/view/model-panel.luau` |
 | Keyboard actions and help | `src/keys.luau`, `src/view/help.luau`, `src/view/hub/help.luau`, README Keys table |
 | Shared presentation | `guide.css` |
 

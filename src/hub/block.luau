@@ -5,6 +5,7 @@
 -- hub/ops (GitHub and agent actions), hub/agent-run (an agent fix), hub/details (the pages' reads), hub/tandem, and
 -- hub/refresh (the timers), all over hub/store (the shared cache) and hub/runtime (the Block record).
 local Actions = require("../ci/actions")
+local Agent = require("../agent")
 local AgentHost = require("../agent-host")
 local AgentRun = require("./agent-run")
 local Board = require("../view/hub/board")
@@ -21,6 +22,7 @@ local Keys = require("../keys")
 local Log = require("../ci/log")
 local Lookups = require("./lookups")
 local Model = require("./model")
+local ModelBox = require("../model-box")
 local Ops = require("./ops")
 local Paths = require("../view/hub/paths")
 local Refresh = require("./refresh")
@@ -60,17 +62,27 @@ local SAMPLE_MERGED: { Sync.Opened } = {
 	{ repo = "acme/api", number = 377, title = "Log slow queries", author = "", at = "2026-09-01T08:00:00Z" },
 }
 
--- The agent a fixture board shows, so Settings has something to choose from without running omp. Names and
--- efforts are as long as omp's real ones.
-local SAMPLE_AGENT: State.AgentChoice = {
-	models = {
-		{ selector = "anthropic/claude-fable-5-1", name = "Claude Fable 5.1", efforts = { "low", "medium", "high", "xhigh", "max" } },
-		{ selector = "anthropic/claude-haiku-4-5", name = "Claude Haiku 4.5", efforts = { "minimal", "low", "medium", "high", "xhigh" } },
-		{ selector = "anthropic/claude-3-5-sonnet-v2", name = "Claude Sonnet 3.5 v2", efforts = {} },
-		{ selector = "openai-codex/gpt-6.1-sol", name = "GPT-6.1 Sol", efforts = { "minimal", "low", "medium", "high", "xhigh", "max" } },
-	},
-	model = "anthropic/claude-fable-5-1", effort = "high",
+-- The models a fixture board's Settings offers, so it has something to choose from without running omp. Names
+-- and efforts are as long as omp's real ones, and there are enough that the Review list scrolls under Off.
+local SAMPLE_MODELS: { Agent.Model } = {
+	{ selector = "anthropic/claude-fable-5-1", name = "Claude Fable 5.1", efforts = { "low", "medium", "high", "xhigh", "max" } },
+	{ selector = "anthropic/claude-haiku-4-5", name = "Claude Haiku 4.5", efforts = { "minimal", "low", "medium", "high", "xhigh" } },
+	{ selector = "anthropic/claude-opus-5-5", name = "Claude Opus 5.5", efforts = { "low", "medium", "high", "xhigh", "max" } },
+	{ selector = "anthropic/claude-3-5-sonnet-v2", name = "Claude Sonnet 3.5 v2", efforts = {} },
+	{ selector = "anthropic/claude-sonnet-5-5", name = "Claude Sonnet 5.5", efforts = { "low", "medium", "high", "xhigh" } },
+	{ selector = "google/gemini-3-pro", name = "Gemini 3 Pro", efforts = { "low", "high" } },
+	{ selector = "openai-codex/gpt-5.6-luna", name = "GPT-5.6 Luna", efforts = { "minimal", "low", "medium", "high" } },
+	{ selector = "openai-codex/gpt-6.1-sol", name = "GPT-6.1 Sol", efforts = { "minimal", "low", "medium", "high", "xhigh", "max" } },
+	{ selector = "openai-codex/gpt-6.1-sol-mini", name = "GPT-6.1 Sol mini", efforts = { "minimal", "low", "medium", "high" } },
 }
+}
+
+-- A sample board's agent; its picks are never saved.
+local function sampleAgent(): Agent.Agent
+	local agent = Agent.new("", "", (Agent.picks(nil, { model = "anthropic/claude-fable-5-1", effort = "high" }) :: Agent.Picks))
+	agent.models = table.clone(SAMPLE_MODELS)
+	return agent
+end
 
 -- Reads `name=value` block arguments.
 local function options(args: { string }): ({ generate: boolean, fixture: string? }?, string?)
@@ -143,19 +155,20 @@ local function closeMenu(b: Block)
 	State.closeMenu(b.s)
 end
 
--- Remembers the agent menu's pick as the review model, which agent fixes and summaries run with too.
--- The explanation model, review switch and lens stay as saved.
-local function keepAgentChoice(b: Block)
-	local choice, agent = b.s.agent, b.agent
-	if choice and agent then
-		agent.model, agent.effort = choice.model, choice.effort
-		AgentHost.saveReviewModel(choice.model, choice.effort)
-	end
+-- Runs a Settings model menu action on the agent, saving what it changed: the same choice the review
+-- page's model menu saves. The review model is also what agent fixes and summaries run with.
+local function modelAction(b: Block, act: string, value: string)
+	local s = b.s
+	local agent, box = s.agent, s.models
+	if s.menu ~= "settings" or not agent or not box then return end
+	local outcome = ModelBox.act(box, agent, act, value) :: ModelBox.Outcome
+	if outcome.save and not b.fixture then AgentHost.saveChoice(agent) end
+	if outcome.close then State.closeMenu(s) else s.models = outcome.box end
 end
 
 local chooseMergeRow: (b: Block, cx: BlockCx, index: number) -> ()
 
--- Chooses the highlighted row: a card's other action runs, a model is remembered.
+-- Chooses the highlighted row: a card's other action runs.
 local function pickRow(b: Block, cx: BlockCx, index: number, ACTIONS: { [string]: Handler })
 	local s = b.s
 	if s.menu == "actions" then
@@ -167,9 +180,7 @@ local function pickRow(b: Block, cx: BlockCx, index: number, ACTIONS: { [string]
 		return
 	end
 	if s.menu == "merge" then return chooseMergeRow(b, cx, index) end
-	local menu = s.menu
 	State.menuPick(s, index)
-	if menu == "settings" then keepAgentChoice(b) end
 end
 
 local ACTIONS: { [string]: Handler } = {}
@@ -248,7 +259,13 @@ end
 ACTIONS["hub-menu"] = function(b, cx, id)
 	local s = b.s
 	if s.menu == id then return closeMenu(b) end
+	-- Settings shows what the review page may have saved since, and the lenses as they are now.
+	if id == "settings" and s.agent then
+		if not b.fixture then AgentHost.refreshChoice(s.agent) end
+		Fetch.refreshLenses(s.agent)
+	end
 	State.openMenu(s, id :: State.MenuId)
+	if s.models then frameLater(cx, { { "focus", Paths.settingsField } }) end
 end
 ACTIONS["hub-actions"] = function(b, cx, key)
 	local s = b.s
@@ -279,13 +296,21 @@ ACTIONS["hub-menu-enter"] = function(b, cx)
 	if s.menu == "repositories" and not (row and row.kind == "clear") then return closeMenu(b) end
 	pickRow(b, cx, s.menuCursor, ACTIONS)
 end
-ACTIONS["hub-menu-effort"] = function(b, cx, delta)
-	State.stepEffort(b.s, tonumber(delta) or 0)
-	keepAgentChoice(b)
-end
-ACTIONS["hub-menu-effort-set"] = function(b, cx, level)
-	State.setEffort(b.s, level)
-	keepAgentChoice(b)
+-- Settings' model and lens menu: the same actions as the review page's, on the hub's agent.
+ACTIONS["models-slot"] = function(b, cx, slot) modelAction(b, "models-slot", slot) end
+ACTIONS["models-filter"] = function(b) modelAction(b, "models-filter", "") end
+ACTIONS["models-move"] = function(b, cx, delta) modelAction(b, "models-move", delta) end
+ACTIONS["models-top"] = function(b) modelAction(b, "models-top", "") end
+ACTIONS["models-effort"] = function(b, cx, delta) modelAction(b, "models-effort", delta) end
+ACTIONS["models-pick"] = function(b) modelAction(b, "models-pick", "") end
+ACTIONS["model-row"] = function(b, cx, n) modelAction(b, "model-row", n) end
+ACTIONS["model-effort"] = function(b, cx, effort) modelAction(b, "model-effort", effort) end
+ACTIONS["models-lens"] = function(b, cx, delta) modelAction(b, "models-lens", delta) end
+ACTIONS["model-lens"] = function(b, cx, n) modelAction(b, "model-lens", n) end
+ACTIONS["edit-lenses"] = function(b, cx)
+	local folder, err = Fetch.prepareLensFolder()
+	closeMenu(b)
+	if folder then cx:open(folder) else cx:toast("error", "Couldn't open your lenses folder", err) end
 end
 -- L in Settings, or a click on a side of the toggle: where GitHub links open.
 ACTIONS["hub-links"] = function(b, cx, to)
@@ -547,15 +572,11 @@ local function loadAgent(b: Block, cx: BlockCx)
 	Host.timer(0, function()
 		AgentHost.findAgent(function(agent)
 			if b.closed or not agent then return end
-			b.agent = agent
-			b.s.agent = { models = {}, model = agent.model, effort = agent.effort }
+			b.agent, b.s.agent = agent, agent
 			draw(b, cx)
 			AgentHost.listModels(agent, function(models)
 				if b.closed then return end
-				local choice = b.s.agent
-				if choice then
-					for _, model in models do table.insert(choice.models, { selector = model.selector, name = model.name, efforts = model.efforts }) end
-				end
+				agent.models = models
 				draw(b, cx)
 			end)
 		end)
@@ -666,9 +687,7 @@ local block: BlockDef<Block> = {
 				b.agentFlight = { key = data.runningKey, settled = false, stopping = false, releasing = false, fixtureStep = data.runningStep }
 			end
 			State.project(s)
-			local sample = table.clone(SAMPLE_AGENT)
-			sample.models = table.clone(SAMPLE_AGENT.models)
-			s.agent = sample
+			s.agent = sampleAgent()
 		elseif live then
 			-- How each repo merges is known from the first frame, before any refresh.
 			loadMerges(b)
@@ -727,6 +746,14 @@ local block: BlockDef<Block> = {
 		end
 		if s.mode == "menu" and s.methodEdit then
 			Fields.key(s.methodEdit.field, key)
+			return true
+		end
+		if s.mode == "menu" and s.menu == "settings" and s.models then
+			local next = Keys.afterTyping("models", Fields.key(s.models.field, key))
+			if next then
+				s.keyed = true
+				dispatch(b, cx, next)
+			end
 			return true
 		end
 		-- Menus and the key panel swallow the keys they don't use.
