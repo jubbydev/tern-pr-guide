@@ -75,7 +75,6 @@ local SAMPLE_MODELS: { Agent.Model } = {
 	{ selector = "openai-codex/gpt-6.1-sol", name = "GPT-6.1 Sol", efforts = { "minimal", "low", "medium", "high", "xhigh", "max" } },
 	{ selector = "openai-codex/gpt-6.1-sol-mini", name = "GPT-6.1 Sol mini", efforts = { "minimal", "low", "medium", "high" } },
 }
-}
 
 -- A sample board's agent; its picks are never saved.
 local function sampleAgent(): Agent.Agent
