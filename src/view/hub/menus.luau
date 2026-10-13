@@ -103,7 +103,8 @@ end
 -- Settings: the model and lens menu on the hub's agent, then where links open and background guides.
 local function settings(s: State.State): { Node }
 	local agent, box = s.agent, s.models
-	local kids: { Node } = if agent and box then ModelPanel.parts(box, agent) else { span("gp-md-empty", "Couldn't find the agent: no models to choose from.") }
+	local missing = if s.noAgent then "Couldn't find OMP: " .. s.noAgent .. "." else "Couldn't find the agent: no models to choose from."
+	local kids: { Node } = if agent and box then ModelPanel.parts(box, agent) else { span("gp-md-empty", missing) }
 	table.insert(kids, links(s))
 	table.insert(kids, guides(s))
 	return kids

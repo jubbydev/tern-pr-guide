@@ -9,6 +9,7 @@ local Host = require("./host")
 local Lens = require("./lens")
 local Links = require("./links")
 local Pr = require("./pr")
+local Platform = require("./platform")
 local Sync = require("./hub/sync")
 local Text = require("./text")
 
@@ -48,7 +49,7 @@ end
 -- Tern started from the Dock has a bare PATH, without Homebrew's `gh` or tools like `omp` that a
 -- shell rc file adds. Every command runs with the PATH of the reader's interactive login shell,
 -- read once and shared by the window's blocks; Homebrew's directories are added in case the shell
--- gives nothing.
+-- gives nothing. Windows has no login shell to ask: Tern's own PATH there is the reader's, from the registry.
 local FALLBACK_DIRS = "/opt/homebrew/bin:/usr/local/bin"
 local shellPath: string? = nil
 local waitingForPath: { (path: string) -> () }? = nil
@@ -61,12 +62,17 @@ local function withShellPath(go: (path: string) -> ())
  end
  waitingForPath = { go }
  local function settle(path: string?)
-  local base = if path and path ~= "" then path else (Host.getenv("PATH") or "/usr/bin:/bin")
-  shellPath = base .. ":" .. FALLBACK_DIRS
+  if Platform.windows() then
+   shellPath = Host.getenv("PATH") or ""
+  else
+   local base = if path and path ~= "" then path else (Host.getenv("PATH") or "/usr/bin:/bin")
+   shellPath = base .. ":" .. FALLBACK_DIRS
+  end
   local waiting = waitingForPath :: { (path: string) -> () }
   waitingForPath = nil
   for _, resume in waiting do resume(shellPath :: string) end
  end
+ if Platform.windows() then return settle(nil) end
  local shell = Host.getenv("SHELL") or "/bin/zsh"
  local spawned = pcall(Host.process.run, { shell, "-lic", "printf '\\n%s%s' PRGUIDE_PATH= \"$PATH\"" }, { timeout_ms = 15_000 }, function(result: ProcessResult)
   settle(string.match(result.stdout, "PRGUIDE_PATH=([^\n]*)%s*$"))
@@ -74,15 +80,11 @@ local function withShellPath(go: (path: string) -> ())
  if not spawned then settle(nil) end
 end
 
--- The first file named `program` in the directories of `path`; `program` itself when it already
--- names a path or nothing matches.
+-- The first file for `program` in the folders of `path`; `program` itself when it already names a
+-- path or nothing matches.
 local function located(program: string, path: string): string
- if string.find(program, "/", 1, true) then return program end
- for dir in string.gmatch(path, "[^:]+") do
-  local candidate = dir .. "/" .. program
-  if Host.fs.exists(candidate) then return candidate end
- end
- return program
+ if Platform.isPath(program) then return program end
+ return Platform.which(program, path, Host.fs.exists) or program
 end
 
 -- Runs `argv` and hands its stdout to `ok`; a failed run, or an error from `ok` reading unexpected
@@ -339,10 +341,8 @@ function M.guideHead(repo: Repo, number: number): string?
 end
 
 -- Opens `url` in the system's default browser; `done` gets why it couldn't, else nil.
--- ponytail: macOS `open` and Linux `xdg-open` only; Windows needs its own opener.
 function M.openInBrowser(url: string, done: (err: string?) -> ())
- local opener = if Host.runtime.os == "linux" then "xdg-open" else "open"
- M.runner({ opener, url }, { timeout_ms = 15_000 }, function(out)
+ M.runner(Platform.openCommand(url), { timeout_ms = 15_000 }, function(out)
   if out.status == 0 and not out.timed_out then return done(nil) end
   done(if out.timed_out then "the browser didn't answer" else Text.errorLine(if out.stderr ~= "" then out.stderr else "the browser didn't open"))
  end)

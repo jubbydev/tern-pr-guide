@@ -6,6 +6,7 @@ local Fetch = require("./fetch")
 local Github = require("./github")
 local Host = require("./host")
 local Model = require("./hub/model")
+local Platform = require("./platform")
 local Text = require("./text")
 
 -- Both CLI calls run in the project's absolute root, and every failure settles the callback once, as (nil, reason).
@@ -83,7 +84,7 @@ end
 -- The folder Tandem keeps its clone of `slug` in, or nil: a read-only SELECT, with SQL quoting and no
 -- migration or write to Tandem's store.
 function M.clone(slug: string, done: (string?) -> ())
- local home = Host.getenv("TANDEM_HOME") or ((Host.getenv("HOME") or "") .. "/.tandem")
+ local home = Host.getenv("TANDEM_HOME") or ((Platform.home() or "") .. "/.tandem")
  local database = home .. "/state.sqlite"
  if not Host.fs.exists(database) then return done(nil) end
  local quoted = string.gsub(string.lower(slug), "'", "''")

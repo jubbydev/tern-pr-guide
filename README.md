@@ -35,6 +35,10 @@ PR Guide needs Tern and the [GitHub CLI](https://cli.github.com) signed in to Gi
 [OMP](https://omp.sh) is optional. It runs guided reviews and agent fixes, and everything else
 works without it.
 
+On Windows, PR Guide finds `gh`, `git` and `omp` (including `omp.exe` and `omp.cmd`) on the PATH
+Tern starts with, and reads OMP's settings from your user profile. Agent fixes also need Python on
+that PATH as `python`.
+
 ```sh
 gh auth login
 tern plugin install github.com/jubbydev/tern-pr-guide
@@ -167,7 +171,8 @@ failed checks from the same page.
 - **Review before push.** The fix opens on a review page that labels every line as from the base
   branch, your branch or the agent. Push unlocks once every conflict is marked reviewed.
 - **Sandboxed bot fixes.** When the agent addresses a bot review, it can write only inside its
-  worktree.
+  worktree. Windows has no such sandbox, so there the agent is only told to stay in the worktree,
+  with no shell, and you still review every line before anything is pushed.
 - **Flaky checks.** A failure that also happens on main, for example "failed 3 of the last 20 runs
   on main", is marked **Likely flaky**, so a re-run is the obvious next step.
 - **Feedback summaries.** A one-line summary of what reviewers asked for, such as "Reply to

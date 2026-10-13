@@ -118,6 +118,22 @@ return function()
 		assert(b.s.menu == nil and b.s.models == nil, "Esc closes")
 		assert(kv.model.explainModel == "openai-codex/gpt-6.1-sol" and kv.model.model == "anthropic/claude-haiku-4-5" and kv.model.lens == "Security" and kv.model.review == nil,
 			"the saved choice carries the explanation, the review and the lens")
+
+		-- Without an agent, Settings says why it couldn't find OMP instead of showing no models.
+		b.s.agent, b.agent, b.s.noAgent = nil, nil, "omp isn't installed (it isn't on your shell's PATH)"
+		press("s", true)
+		assert(b.s.menu == "settings" and b.s.models == nil)
+		local function emptyText(node: any): string?
+			if node.p and node.p.class == "gp-md-empty" then return node.p.text end
+			for _, child in node.c or {} do
+				local found = emptyText(child)
+				if found then return found end
+			end
+			return nil
+		end
+		local shown = emptyText(Block.view(b).layer)
+		assert(shown == "Couldn't find OMP: omp isn't installed (it isn't on your shell's PATH).", tostring(shown))
+		press("escape")
 	end)
 	for name in stub do Host[name] = hostFields[name] end
 	fieldEnv.tern = hostField

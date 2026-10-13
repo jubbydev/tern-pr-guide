@@ -3,6 +3,7 @@
 -- fast explanation of the PR, and a review that drafts comments. Holds the model and effort of each, the
 -- models there are to pick from, and the files a run reads. src/agent-host.luau finds the agent and runs it.
 local Lens = require("./lens")
+local Platform = require("./platform")
 local Pr = require("./pr")
 local Text = require("./text")
 
@@ -211,15 +212,6 @@ function M.replyJson(reply: string): string
  return string.match(reply, "```%w*[ \t]*\n(.-)\n%s*```") or (string.match(reply, "^%s*(.-)%s*$") :: string)
 end
 
--- The first `omp` in the directories of `path` (a colon-separated PATH value) that `exists`.
-function M.findOnPath(path: string, exists: (string) -> boolean): string?
- for dir in string.gmatch(path, "[^:]+") do
-  local candidate = dir .. "/omp"
-  if exists(candidate) then return candidate end
- end
- return nil
-end
-
 -- A YAML scalar without its quotes or trailing comment.
 local function scalar(raw: string): string
  local quoted = string.match(raw, "^\"([^\"]*)\"") or string.match(raw, "^'([^']*)'")
@@ -269,7 +261,7 @@ end
 
 -- Where a run for `pr` keeps the diff and prompt it reads.
 function M.workDir(pr: Pr.PR): string
- return "/tmp/prguide-" .. string.gsub(pr.repo, "/", "-") .. "-" .. pr.number
+ return Platform.temp() .. "/prguide-" .. string.gsub(pr.repo, "/", "-") .. "-" .. pr.number
 end
 
 -- What the first line of the numbered diff says about the columns after it.

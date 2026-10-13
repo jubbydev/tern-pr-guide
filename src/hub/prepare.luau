@@ -7,6 +7,7 @@ local AgentHost = require("../agent-host")
 local Fetch = require("../fetch")
 local Host = require("../host")
 local Model = require("./model")
+local Platform = require("../platform")
 local Prdata = require("../prdata")
 local Runtime = require("./runtime")
 
@@ -63,7 +64,7 @@ end
 local function checkout(run: Run, cx: BlockCx, slug: string, done: (Fetch.Repo?) -> ())
 	local known = run.checkouts[slug]
 	if known ~= nil then return done(if known then known else nil) end
-	Fetch.checkoutFor(nil, cx.cwd or Host.getenv("HOME") or "", slug, function(found)
+	Fetch.checkoutFor(nil, cx.cwd or Platform.home() or "", slug, function(found)
 		local repo = found or Fetch.savedCopy("github.com", slug)
 		run.checkouts[slug] = repo or false
 		done(repo)

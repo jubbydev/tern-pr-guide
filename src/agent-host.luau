@@ -9,6 +9,7 @@ local Github = require("./github")
 local Guide = require("./guide")
 local Host = require("./host")
 local Links = require("./links")
+local Platform = require("./platform")
 local Pr = require("./pr")
 local Prdata = require("./prdata")
 local ReviewFix = require("./hub/review-fix")
@@ -41,10 +42,10 @@ local M = {}
 -- standing in for a model never picked. Calls `done` once, with nil and why when `omp` or the
 -- model is missing. `omp` is looked up as a file because an interactive shell may define it as an alias.
 function M.findAgent(done: (agent: Agent.Agent?, why: string?) -> ())
- local home = Host.getenv("HOME")
+ local home = Platform.home()
  if not home then return done(nil, "your home directory is unknown") end
  Fetch.withShellPath(function(path)
-  local command = Agent.findOnPath(path, Host.fs.exists)
+  local command = Platform.which("omp", path, Host.fs.exists)
   if not command then return done(nil, "omp isn't installed (it isn't on your shell's PATH)") end
   local saved = savedChoice()
   local picks = Agent.picks(saved, ompDefaults(home .. Agent.CONFIG))
@@ -214,7 +215,7 @@ export type AgentFixRequest = {
 function M.startAgentFix(request: AgentFixRequest, agent: Agent.Agent, now: number, changed: (AgentFix.Outcome) -> (), done: (AgentFix.Fix?, string?) -> ()): AgentFix.Engine?
  if activeAgentFix and activeAgentFix.busy() then done(nil, "An agent fix already holds a worktree"); return nil end
  activeAgentFix = nil
- local home = Host.getenv("HOME")
+ local home = Platform.home()
  if not home then done(nil, "The home directory is unknown"); return nil end
  if request.number < 1 or request.number % 1 ~= 0 or not string.match(request.headOid, "^%x+$") or string.sub(request.base, 1, 1) == "-" or request.base == "" then
   done(nil, "Invalid PR refs"); return nil
@@ -225,13 +226,19 @@ function M.startAgentFix(request: AgentFixRequest, agent: Agent.Agent, now: numb
   branch = request.branch, base = request.base, headOid = request.headOid, number = request.number,
   tool = Host.plugin.dir .. "/tools/conflicts", omp = agent.command, model = agent.model,
   effort = agent.effort, regenerate = request.regenerate, input = request.input,
-  -- A bot edit runs in macOS Seatbelt; where it is missing the run fails and nothing is applied.
-  sandbox = if request.input then { exec = "/usr/bin/sandbox-exec", home = home } else nil,
+  -- A bot edit runs in macOS Seatbelt; where it is missing the run fails and nothing is applied. Windows has no
+  -- sandbox to apply, so there the worker runs unconfined.
+  sandbox = if request.input and not Platform.windows() then { exec = "/usr/bin/sandbox-exec", home = home } else nil,
+  unconfined = if request.input and Platform.windows() then true else nil,
  }
+ if Platform.windows() then
+  -- Windows ignores the tool's `#!` line; forward slashes keep backslash escapes out of the agent's shell.
+  spec.tool, spec.interpreter = (string.gsub(spec.tool, "\\", "/")), Platform.python()
+ end
  local function samePath(a: string, b: string, callback: (boolean?, string?) -> ())
-  -- Physical paths protect /tmp versus /private/tmp and symlinked checkouts. Also reject
-  -- the source clone itself, which can differ from the currently viewed checkout.
-  Fetch.runner({ "python3", "-c", "import os,sys; print('same' if os.path.realpath(sys.argv[1]) in [os.path.realpath(p) for p in sys.argv[2:]] else 'different')", a, b, spec.clone }, { timeout_ms = 15_000 }, function(out)
+  -- Physical paths protect /tmp versus /private/tmp, symlinked checkouts and, on Windows, case and slashes. Also
+  -- reject the source clone itself, which can differ from the currently viewed checkout.
+  Fetch.runner({ Platform.python(), "-c", "import os,sys; r=lambda p: os.path.normcase(os.path.realpath(p)); print('same' if r(sys.argv[1]) in [r(p) for p in sys.argv[2:]] else 'different')", a, b, spec.clone }, { timeout_ms = 15_000 }, function(out)
    if out.status ~= 0 then return callback(nil, "Couldn't verify the acquired worktree path") end
    local result = Text.trimEnd(out.stdout)
    callback(if result == "different" then false elseif result == "same" then true else nil, nil)

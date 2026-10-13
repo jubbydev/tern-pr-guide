@@ -47,12 +47,14 @@ end
 local SANDBOX = "/usr/bin/sandbox-exec"
 local STATE = WORKTREE .. "/.prguide-omp-state"
 -- The reserved state folder is set up before the worker and removed straight after it, whatever its outcome.
-local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "tracked" | "exists" | "failed" | "unclean")
+-- `unconfined` is Windows: no sandbox exists, so the unchanged omp argv runs straight in the worktree.
+local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "unconfined" | "tracked" | "exists" | "failed" | "unclean")
 	local stopDuringAgent = mode == "stop"
 	local s = fresh()
 	local key = Fixture.details.bot.key
 	local spec = Fixture.spec(key)
-	if mode == "unsandboxed" then spec.sandbox = nil end
+	if mode == "unsandboxed" or mode == "unconfined" then spec.sandbox = nil end
+	if mode == "unconfined" then spec.unconfined = true end
 	local entries: { Entry } = {
 		{ argv = { "treehouse", "--root", "/pool", "get", "--lease", "--lease-holder", "prguide", "--no-fetch", "--json" }, cwd = "/clone", stdout = "lease" },
 		git({ "status", "--porcelain" }), git({ "rev-parse", "HEAD" }, POOL_HEAD .. "\n"),
@@ -60,7 +62,9 @@ local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "tracked" | "e
 		git({ "rev-parse", "refs/prguide/agent/head" }, HEAD .. "\n"),
 		git({ "-c", "core.hooksPath=/dev/null", "switch", "--detach", HEAD }),
 	}
-	if mode ~= "unsandboxed" then
+	if mode == "unconfined" then
+		table.insert(entries, { argv = Fixture.transcripts.bot.argv, cwd = WORKTREE, stdout = Fixture.transcripts.bot.stdout })
+	elseif mode ~= "unsandboxed" then
 		table.insert(entries, git({ "ls-files", "--", ".prguide-omp-state" }, if mode == "tracked" then ".prguide-omp-state/omp/logs/omp.log\n" else ""))
 		if mode ~= "tracked" then
 			table.insert(entries, { argv = { "/bin/mkdir", STATE }, cwd = WORKTREE, stdout = "", status = if mode == "exists" then 1 else 0, stderr = "File exists" })
@@ -73,7 +77,7 @@ local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "tracked" | "e
 			end
 		end
 	end
-	if mode == "ready" then
+	if mode == "ready" or mode == "unconfined" then
 		for _, entry in {
 			git({ "rev-parse", "HEAD" }, HEAD .. "\n"), git({ "diff", "--name-only", "--diff-filter=U" }),
 			git({ "add", "--all" }),
@@ -108,7 +112,8 @@ local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "tracked" | "e
 				equal(inner, { "/omp", "-p", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--no-title",
 					"--tools", "read,edit,write,grep,glob", "--model", "provider/model", "--thinking", "high", AgentFix.botPrompt(Fixture.details.bot) })
 			else
-				assert(argv[1] ~= "/omp", "the bot worker must never run unwrapped")
+				assert(argv[1] ~= "/omp" or mode == "unconfined", "the bot worker must never run unwrapped")
+				if argv[1] == "/omp" then assert(opts.timeout_ms == 20 * 60_000 and argv[#argv] == AgentFix.botPrompt(Fixture.details.bot)) end
 				equal(argv, entry.argv)
 			end
 			for _, word in argv do assert(word ~= "push" and word ~= "--force" and word ~= "--force-with-lease") end
@@ -139,7 +144,7 @@ local function botEngine(mode: "ready" | "stop" | "unsandboxed" | "tracked" | "e
 	end)
 	assert(#calls == 0, "constructing an engine is lazy")
 	engine.begin()
-	if mode ~= "ready" and mode ~= "stop" then
+	if mode ~= "ready" and mode ~= "stop" and mode ~= "unconfined" then
 		assert(finished == 1 and fix == nil and engine.held() == nil, "a failed bot run returns its lease")
 	elseif stopDuringAgent then
 		assert(#calls == 10 and pending ~= nil)
@@ -790,6 +795,7 @@ return function()
 	botEngine("ready")
 	botEngine("stop")
 	botEngine("unsandboxed")
+	botEngine("unconfined")
 	botEngine("tracked")
 	botEngine("exists")
 	botEngine("failed")

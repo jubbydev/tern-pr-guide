@@ -15,10 +15,13 @@ local function equal(a: { string }, b: { string })
  for i, value in a do assert(value == b[i], "argv at " .. i .. ": " .. value .. " versus " .. tostring(b[i])) end
 end
 
+-- Set while a scenario runs as on Windows, where the conflicts tool runs through its interpreter.
+local interpreter: string? = nil
+
 local function spec(): AgentFix.Spec
  return { key = "acme/web#15", clone = "/clone", checkout = "/reader", pool = "/pool",
   branch = "topic", base = "main", headOid = HEAD, number = 15, tool = "/plugin/tools/conflicts",
-  omp = "/omp", model = "provider/model", effort = "high" }
+  omp = "/omp", model = "provider/model", effort = "high", interpreter = interpreter }
 end
 
 type Entry = { argv: { string }, cwd: string?, status: number?, stdout: string?, decoded: any? }
@@ -28,8 +31,8 @@ local function git(args: { string }, stdout: string?, status: number?): Entry
  return { argv = argv, cwd = WORKTREE, stdout = stdout, status = status }
 end
 local function tool(args: { string }, decoded: any): Entry
- local argv = { "/plugin/tools/conflicts" }
- table.move(args, 1, #args, 2, argv)
+ local argv = if interpreter then { interpreter, "/plugin/tools/conflicts" } else { "/plugin/tools/conflicts" }
+ table.move(args, 1, #args, #argv + 1, argv)
  return { argv = argv, cwd = WORKTREE, decoded = decoded }
 end
 local function acquisition(): Entry
@@ -171,6 +174,23 @@ return function()
  for _, call in Omp.toolCalls do assert(call.command ~= "read" and call.command ~= "cat") end
  agent.engine.release(function(ok) assert(ok) end)
  agent.only()
+
+ -- Windows ignores the tool's `#!` line: the engine runs it through Python, and the agent is told the same command.
+ interpreter = "python"
+ local windows = preparation(true)
+ local windowsOmp = table.clone(Omp.argv)
+ windowsOmp[#windowsOmp] = AgentFix.prompt('python "/plugin/tools/conflicts"')
+ assert(windowsOmp[#windowsOmp] ~= Omp.argv[#Omp.argv])
+ append(windows, { tool({ "list" }, Tool.transcript[1].reply), tool({ "show", "h1" }, Tool.transcript[2].reply), tool({ "show", "h2" }, Tool.transcript[3].reply),
+  tool({ "list" }, Tool.transcript[1].reply), { argv = windowsOmp, cwd = WORKTREE, stdout = Omp.stdout } })
+ append(windows, committed())
+ cleanup(windows)
+ local onWindows = harness(windows)
+ onWindows.engine.begin()
+ assert((onWindows.finish(true) :: AgentFix.Fix).usedAgent)
+ onWindows.engine.release(function(ok) assert(ok) end)
+ onWindows.only()
+ interpreter = nil
 
  -- A lockfile uses the base and regenerates at zero tokens, with full rule provenance.
  local lock = table.clone(Tool.transcript[2].reply)

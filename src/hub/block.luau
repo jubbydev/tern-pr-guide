@@ -662,8 +662,12 @@ end
 -- The agent the reader's omp is set to, and the models it can run (a live board only).
 local function loadAgent(b: Block, cx: BlockCx)
 	Host.timer(0, function()
-		AgentHost.findAgent(function(agent)
-			if b.closed or not agent then return end
+		AgentHost.findAgent(function(agent, why)
+			if b.closed then return end
+			if not agent then
+				b.s.noAgent = why
+				return draw(b, cx)
+			end
 			b.agent, b.s.agent = agent, agent
 			draw(b, cx)
 			-- The cached board's review requests, before any refresh.

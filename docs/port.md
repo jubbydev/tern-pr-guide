@@ -105,7 +105,7 @@ This is an open decision. Choose one of two options.
 
 **Option 1. A server-side worker with a checkout.** A job queue runs git and `omp` on a machine that keeps bare clones and leases worktrees. The pure engine (`AgentFix.engine`) and the plans (`ReviewFix.plan`, `ReviewFix.readCommands`) already take an injected runner, so they port 1:1 and run on the worker. `Prdata.readFixes` and the generated-file marking also run there. Costs:
 
-- You run and secure a machine that executes an AI agent on untrusted repository code. Today a bot fix runs under macOS `sandbox-exec` with a profile from `AgentFix.sandboxProfile`. Linux needs a container or a seccomp equivalent.
+- You run and secure a machine that executes an AI agent on untrusted repository code. Today a bot fix runs under macOS `sandbox-exec` with a profile from `AgentFix.sandboxProfile`. On Windows, which has no sandbox the plugin can apply, it runs unconfined (`Spec.unconfined`), with only its tools and prompt keeping it in the worktree. Linux needs a container or a seccomp equivalent.
 - The worker pushes with a token that can write to the PR's head repository, forks included.
 - Clones cost disk and the first fetch of a big repo is slow (`GIT_FETCH_MS` is 20 minutes).
 - `tools/conflicts` (Python) must be on the worker.
@@ -222,6 +222,7 @@ A failing check with no usable annotation shows its log on the fixes page, and R
 | Module | One job | Verdict | Tests |
 |---|---|---|---|
 | `src/host.luau` | The platform calls every non-view module makes: processes, kv, files, JSON, timers, environment, clocks, the operating system, plugin folders. | Rewrite for the web host ([B.1](#b1-host)). | swapped in `summary_test`, `tandem_test`, `fold_test` |
+| `src/platform.luau` | What differs by operating system: the home and temp folders, PATH splitting and program names (PATHEXT on Windows), the Python that runs `tools/conflicts`, and the command that opens a link or folder outside Tern. | Drop: the worker runs on one known OS, and the browser opens links in a new tab. | `platform_test` |
 | `src/github.luau` | The hub's GitHub boundary. Every call goes through an injected `Runner` and JSON through an injected `decode`. Parsers never throw, and failures are `Error` values. | Replace with GitHub API for the transport. Port the queries, parsers and `historyCache` 1:1. | `github_test` (exact argv through `tests/fake-runner.luau`), `fixes_test`, `flake_test`, `merge_test`, `rereview_test`, `selection_test` |
 | `src/prdata.luau` | Reading a PR and posting a review through `gh` and `git` in a checkout; what the fixes page reads for conflicts. | Replace with GitHub API ([B.4](#b4-prdata)). `readFixes` goes to the worker. | none |
 | `src/agent-host.luau` | The reader's agent (`omp`) as a process: finding it, its models, writing a guide, summarizing feedback, and agent fixes. | Rewrite for the web host, as the worker's API ([B.5](#b5-the-agent-host)). | stubbed in `summary_test`, `tandem_test` |
@@ -311,10 +312,10 @@ interface Host {
 | `fs` | The worker's disk: guides, prompts, lenses, journals. | None. |
 | `json` | `JSON.parse` and `JSON.stringify`. `json.array` exists only to mark empty Luau tables as arrays. Drop it. | Same. |
 | `timer` | `setTimeout` for server jobs. | `setTimeout` for polls, rings and frame ops. |
-| `getenv` | Server config (`HOME`, `TANDEM_POOL_ROOT` drops). | None. |
+| `getenv` | Server config (`HOME` or Windows' `USERPROFILE`, `TEMP`, `PATH`, `PATHEXT`, `SystemRoot`, `TANDEM_POOL_ROOT` drop). | None. |
 | `now` | `performance.now()`. | `performance.now()`. |
 | `time` | `Date.now() / 1000`. | `Date.now() / 1000`. |
-| `runtime.os` | Only `Fetch.openInBrowser` reads it, to pick `open` or `xdg-open`. Drop. | None. |
+| `runtime.os` | Only `Platform` reads it: Windows changes the home and temp folders, PATH lookup, the Python name, the opener (`rundll32`, else `open` or `xdg-open`) and the bot fix's sandbox. Drop. | None. |
 | `plugin.data`, `plugin.dir` | The worker's data folder and the app's install folder (for `tools/conflicts`, `prompts/`, `lenses/`). | None. |
 
 Two calls read the clock outside `Host`. `Runtime.isoNow` formats `Host.time()` with `os.date`, and `Fetch.rememberPr` calls `os.date` with no time. Pass `now` in the port.
@@ -514,7 +515,7 @@ interface PrData {
 	openPr(target: Target, progress: (stage: string) => void): Promise<Result<PR>>
 	readFixes(pr: HubPR, paths: string[]): Promise<Result<FixRead>> // worker only
 	submitReview(pr: PR, payload: ReviewPayload, to: Destination): Promise<Result<Delivery>>
-	dryRunPath(number: number): string // "/tmp/prguide-review-<n>.json" today
+	dryRunPath(number: number): string // "<temp>/prguide-review-<n>.json" today: /tmp, or %TEMP% on Windows
 }
 ```
 
@@ -828,21 +829,22 @@ Run all of them with `/opt/homebrew/bin/luau tests/run.luau`. `tests/run.luau` l
 | `tests/selection_test.luau` | `github`, `hub/model`, `hub/state` | Marks, Merge selected, Close stale, the confirm. |
 | `tests/flake_test.luau` | `github`, `hub/model`, `hub/state` | The flake verdict matrix, run parsing, `historyCache` (one read per repo per hour), and where Re-run sits on a card. |
 | `tests/rereview_test.luau` | `github`, `hub/model`, `hub/state` | Re-request review after new commits, and where Merge when ready is offered. |
-| `tests/agent_fix_test.luau` | `hub/agent-fix` | The engine's exact command sequence for conflicts and bot fixes, and the lease take and return. |
+| `tests/agent_fix_test.luau` | `hub/agent-fix` | The engine's exact command sequence for conflicts and bot fixes, the lease take and return, and the conflicts tool run through its interpreter on Windows. |
 | `tests/agent_state_test.luau` | `hub/agent-fix`, `hub/state`, `keys`, `text-field` | The agent card lifecycle, its keys and clicks, lease effects. |
 | `tests/review_fix_test.luau` | `hub/agent-fix`, `hub/review-fix`, `hub/state`, `keys`, `text-field` | Conflict excerpts from a fix commit, the Push and Discard plans and their results. |
 | `tests/moves_test.luau` | `diff`, `moves`, `pr` | Moved blocks across files and within one, the near misses that stay plain changes (short or brace-only blocks, an edited line, a remove-then-add group), `Diff.analyze` carrying moves, and that 3,000 moved lines match in under two seconds. |
 | `tests/diff_test.luau` | `diff`, `pr` | A step's block starting at its enclosing function (within `SCOPE_REACH`), the hidden runs and gap labels around it. |
 | `tests/groups_test.luau` | `agent`, `file-group`, `file-tree`, `git-output`, `guide`, `pr`, `review`, `state` | Tests and generated files: the path classifier, git's output marking them, the order and sections the page lists files in, what a guide and the agent's diff leave out, and how the supporting area folds and opens them. |
 | `tests/model_menu_test.luau` | `model-box`, `keys`, `state`, `view/model-panel`, `view/header`, `view/ui`'s `tern.ui` stubbed | The model menu's Explanation and Review slots with no Off row, Tab, choosing, the Lens slot, the header's Settings button, and the AI row's Generate AI guide and Generate LLM review. |
-| `tests/hub_settings_test.luau` | the real `hub/block`, `Host` stubbed, `view/ui`'s `tern.ui` stubbed | Settings: opening focuses the search, typing filters, Tab to Review, a click, the lens, the saved choice, and L only with an empty search. |
+| `tests/hub_settings_test.luau` | the real `hub/block`, `Host` stubbed, `view/ui`'s `tern.ui` stubbed | Settings: opening focuses the search, typing filters, Tab to Review, a click, the lens, the saved choice, L only with an empty search, and why OMP wasn't found when there is no agent. |
+| `tests/platform_test.luau` | `platform`, `Host` fields swapped | Windows: home from `USERPROFILE`, temp from `TEMP`, `;` PATH with quoted entries, PATHEXT names, the first folder winning, `python` and `rundll32`; macOS and Linux keep `HOME`, `/tmp`, `:` PATH, `python3` and `open` or `xdg-open`. |
 | `tests/agent_diff_test.luau` | `agent`, `pr` | What the explanation's diff shows as one line (generated, vendored, minified and snapshot files) and the whitespace-only hunks it counts instead of showing, outside Python and YAML. |
 | `tests/fold_test.luau` | the real `hub/block`, `Host` stubbed, `view/ui`'s `tern.ui` stubbed | Opening a fold scrolls its header to the top of the board; closing one doesn't scroll. |
 | `tests/ci_log_test.luau` | `ci/actions`, `ci/buildkite`, `ci/log` | The log contract and both CI modules on recorded output (`fixtures/hub/ci-logs.luau`): which checks each owns, the exact commands and env, the cut, failures, `Log.refs`, and each module's re-run (once per run or build). |
 | `tests/checks_test.luau` | `github`, `hub/checks`, `hub/state`, `keys` | The check list parsed from GitHub (every state mapped), the client's one read, the popover's groups, times and fold, a check that finishes while open, its state on the hub, and its keys. |
 | `tests/rerun_test.luau` | `hub/block`, `ci/log` | Re-run failed checks on the hub block: each CI module gets its own failing checks, and a check none owns is named in the toast. |
 | `tests/branch_test.luau` | `hub/block`, `github`, `hub/state`, `view/hub/fixes`, `keys` | U on a failing check: the parsed base comparison, the strip's Update branch or Push empty commit, the key, and the question Push empty commit asks before its three GitHub calls. |
-| `tests/summary_test.luau` | the real `hub/block` and `agent-host`, `Host` stubbed | Summarize and bot fixes end to end through `ACTIONS`: stale refs, edited comments, timeouts, a closed block, duplicate callbacks. |
+| `tests/summary_test.luau` | the real `hub/block` and `agent-host`, `Host` stubbed | Summarize and bot fixes end to end through `ACTIONS`: stale refs, edited comments, timeouts, a closed block, duplicate callbacks, and the unconfined worker on Windows. |
 | `tests/tandem_test.luau` | the real `hub/block`, `agent-host`, `tandem`, `Host` stubbed | Tandem ownership, and the shared cache rules it exercises. |
 | `tests/prepare_test.luau` | the real `hub/prepare`, `Fetch`, `Prdata` and `AgentHost` functions and `Host` stubbed; `keys`, `hub/state` | Which PRs want a background guide, one at a time, explanation only, a failure not retried at its head, stopping when turned off or closed, the `hub.preparing` lease, and ⇧G in Settings (plain g types into its search). |
 

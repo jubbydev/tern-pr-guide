@@ -5,10 +5,10 @@
 local AgentHost = require("../agent-host")
 local Fetch = require("../fetch")
 local Fixes = require("./fixes")
-local Host = require("../host")
 local Log = require("../ci/log")
 local Model = require("./model")
 local Prdata = require("../prdata")
+local Platform = require("../platform")
 local Refresh = require("./refresh")
 local ReviewFix = require("./review-fix")
 local Runtime = require("./runtime")
@@ -110,7 +110,7 @@ end
 local function readGit(b: Block, cx: BlockCx, pr: Model.HubPR, d: Fixes.FixDetails)
 	local paths = annotatedPaths(d)
 	if not pr.conflicts and #paths == 0 then return end
-	local dir = cx.cwd or Host.getenv("HOME") or ""
+	local dir = cx.cwd or Platform.home() or ""
 	Fetch.checkoutFor(nil, dir, pr.repo, function(found)
 		if b.closed then return end
 		local repo = found or Fetch.readySavedCopy(pr.repo)
@@ -149,7 +149,7 @@ local function readLogFiles(b: Block, cx: BlockCx, pr: Model.HubPR, d: Fixes.Fix
 	if #paths == 0 then return end
 	local filesOnly = table.clone(pr)
 	filesOnly.conflicts = false
-	Fetch.checkoutFor(nil, cx.cwd or Host.getenv("HOME") or "", pr.repo, function(found)
+	Fetch.checkoutFor(nil, cx.cwd or Platform.home() or "", pr.repo, function(found)
 		if b.closed then return end
 		local repo = found or Fetch.readySavedCopy(pr.repo)
 		if repo == nil then return end

@@ -7,10 +7,10 @@
 -- checkout a PR opens in (`plan`), shared with opening the PR in a pane of its own.
 local Details = require("./details")
 local Fetch = require("../fetch")
-local Host = require("../host")
 local Keys = require("../keys")
 local Links = require("../links")
 local PageViews = require("./page-views")
+local Platform = require("../platform")
 local ReviewPage = require("../review-page")
 local Runtime = require("./runtime")
 local State = require("./state")
@@ -29,7 +29,7 @@ local M = {}
 -- Finds a checkout of `slug` (beside the hub's folder, else PR Guide's own copy) and calls `done` with the link the
 -- window's route turns into a review of PR `number`, or with nil after a toast saying why it can't (`State.openPlan`).
 function M.plan(b: Block, cx: BlockCx, slug: string, number: number, generate: boolean, done: (string?) -> ())
-	local dir = cx.cwd or Host.getenv("HOME") or ""
+	local dir = cx.cwd or Platform.home() or ""
 	Fetch.checkoutFor(nil, dir, slug, function(found)
 		if b.closed then return end
 		local _, why = Fetch.savedCopy("github.com", slug)

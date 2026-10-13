@@ -150,6 +150,7 @@ export type State = {
 	loading: boolean,
 	error: Model.Error?,
 	agent: Agent.Agent?, -- what Settings picks for: the reader's agent once the block finds it, or a sample's
+	noAgent: string?, -- why the reader's agent wasn't found, once looked for
 	models: ModelBox.ModelBox?, -- Settings' model and lens menu, read only while `menu` is "settings"
 	links: "tern" | "browser", -- where GitHub links open; the block loads and saves it
 	prepareGuides: boolean, -- Settings: prepare AI guides for review requests in the background; the block loads and saves it
