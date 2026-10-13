@@ -43,19 +43,41 @@ function M.open(agent: Agent.Agent, slot: Agent.Pass): ModelBox
  return box
 end
 
--- Starts the list far enough down that the highlighted model is among the rows it fits. The list
--- is never scrolled to it: Tern's reveal into a scroller pins it, so the wheel stops working.
-local function keepShown(box: ModelBox)
+-- The lines the list draws from row `top` down to row `last`: each row, a provider heading where the
+-- provider changes, the pinned Off row and the "more" row above a list that starts lower down.
+local function linesTo(choices: { Agent.Model }, top: number, last: number): number
+ local pinned = choices[1] == M.OFF
+ local first = if pinned then 2 else 1
+ local from = math.max(top, first)
+ local lines, group = (if pinned then 1 else 0) + (if from > first then 1 else 0), nil
+ for n = from, last do
+  local name = string.match(choices[n].selector, "^([^/]+)/") or ""
+  if name ~= group then
+   group = name
+   lines += 1
+  end
+  lines += 1
+ end
+ return lines
+end
+
+-- Starts the list far enough down that the highlighted model is among the lines it fits, headings
+-- included. The list is never scrolled to it: Tern's reveal into a scroller pins it, so the wheel
+-- stops working.
+local function keepShown(box: ModelBox, choices: { Agent.Model })
  if box.selected < box.top then
   box.top = box.selected
- elseif box.selected >= box.top + MODEL_ROWS then
-  box.top = box.selected - MODEL_ROWS + 1
+  return
+ end
+ while box.top < box.selected and linesTo(choices, box.top, box.selected) > MODEL_ROWS do
+  box.top += 1
  end
 end
 
 function M.move(box: ModelBox, agent: Agent.Agent, delta: number)
- box.selected = math.clamp(box.selected + delta, 1, math.max(1, #M.choices(box, agent)))
- keepShown(box)
+ local choices = M.choices(box, agent)
+ box.selected = math.clamp(box.selected + delta, 1, math.max(1, #choices))
+ keepShown(box, choices)
 end
 
 -- Steps the effort the highlighted model will get through the levels it takes.

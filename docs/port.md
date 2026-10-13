@@ -496,7 +496,9 @@ From `src/agent-host.luau`. Every function runs `omp`, `git` or `treehouse` on t
 
 ```ts
 type AgentModel = { selector: string; name: string; efforts: string[] }
-type Agent = { command: string; path: string; model: string; effort?: string; models: AgentModel[]; lenses: Lens[]; lens: string }
+type AgentChoice = { model: string; effort?: string }
+// model and effort are the review model, which agent fixes and the feedback summary also run with
+type Agent = { command: string; path: string; model: string; effort?: string; explain: AgentChoice; review: boolean; models: AgentModel[]; lenses: Lens[]; lens: string }
 
 type AgentFixRequest = {
 	key: string; clone: string; checkout: string; branch: string; base: string; headOid: string

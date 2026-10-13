@@ -125,4 +125,15 @@ return function()
 	box.selected = 1
 	assert(ModelBox.choose(box, a))
 	assert(a.review == true and a.model == "anthropic/opus-5", "picking a review model turns the review back on")
+
+	-- Arrowing down a list where every model has its own provider heading keeps the highlighted row
+	-- within the lines the list fits, headings, Off and the "more" row counted.
+	a.models = {}
+	for n = 1, 12 do table.insert(a.models, { selector = "p" .. n .. "/m", name = "M" .. n, efforts = {} }) end
+	box = ModelBox.open(a, "review")
+	box.selected, box.top = 1, 1
+	for _ = 1, 12 do ModelBox.move(box, a, 1) end
+	assert(box.selected == 13, "the last model is highlighted")
+	local lines = 1 + (if box.top > 2 then 1 else 0) + 2 * (box.selected - math.max(box.top, 2) + 1)
+	assert(lines <= 8, "the highlighted row is in view: " .. lines .. " lines from top " .. box.top)
 end
