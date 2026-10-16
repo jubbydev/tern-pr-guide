@@ -50,7 +50,7 @@ end
 local function fetchRefs(job: Job, number: number, base: string, ok: () -> ())
  local prefix = refPrefix(number)
  local fetch = {
-  "fetch", "--no-tags", "--no-write-fetch-head", "origin",
+  "fetch", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "origin",
   "+refs/pull/" .. number .. "/head:" .. prefix .. "/head",
   "+refs/heads/" .. base .. ":" .. prefix .. "/base",
  }

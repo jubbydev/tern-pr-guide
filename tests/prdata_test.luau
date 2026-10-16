@@ -70,6 +70,7 @@ return function()
 		local w, settle, count = world()
 		Prdata.openPr({ pr = "8", repo = "/c/web", base = "main" }, function() end, function() end)
 		assert(#w.ran == 2 and count("gh pr view") == 1 and count("git fetch") == 1, "with the base known, GitHub is read while the commits are fetched")
+		assert(count("--recurse-submodules=no") == 1, "fetching a PR never fetches its repository's submodules")
 		settle()
 	end
 	do
