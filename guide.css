@@ -1165,9 +1165,9 @@
 .sf-layer[data-surface="plugin.prguide.hub"] { z-index: 30; }
 .gp-hub { gap: 0; min-height: calc(100vh - 40px); }
 /* The board fills the pane and its body scrolls on its own, so the page itself never scrolls: Tern sends a page that
-   scrolls past about 1,100px back to its top when a scroll overshoots the bottom. */
-.sf-main[data-surface="plugin.prguide.hub"] > div { height: 100%; }
-.gp-hub-fit { height: 100%; min-height: 0; }
+   scrolls past about 1,100px back to its top when a scroll overshoots the bottom. The pane's .sf-main is a flex column
+   whose height a percentage doesn't reach (height: 100% stopped filling it in Tern 0.9), so the page flexes into it. */
+.gp-hub-fit { flex: 1 1 0; min-height: 0; }
 .gp-hub-fit > .gp-hub-body { flex: 1 1 0; min-height: 0; overflow-y: auto; padding-bottom: 16px; }
 .gp-hub .gp-hintbar { margin-top: 0; }
 .gp-hub-head { gap: 12px; padding: 14px 0 0; border-bottom: none; }
@@ -1599,7 +1599,7 @@
    outside the body because Tern leaves a sticky node out of paint after a reveal. The sticky change card and Files tree live in the
    body, so their height is the pane (100vh less the 102px of tab bar and margins around it) less the 92px header, the 44px hint bar and
    the two 12px gaps: Tern has no cqh or dvh, and a percentage of the scroll box cannot reach a sticky element in the tall row. */
-.gp-page-fit { height: 100%; min-height: 0; }
+.gp-page-fit { flex: 1 1 0; min-height: 0; }
 .gp-page-fit > .gp-header { flex: 0 1 auto; max-height: 50%; position: relative; overflow-y: auto; }
 .gp-page-fit > .gp-hintbar { flex-shrink: 0; margin-top: 0; }
 .gp-page-fit > .gp-page-body { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
